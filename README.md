@@ -17,7 +17,7 @@ This project was developed as a BigData Challenge by Xpand IT.
 <br>
 
 <p align="center">
-  <img alt="System" src=".github/system.png" width="100%">
+  <img alt="System" src=".github/System.png" width="100%">
 </p>
 
 ## Technologies
