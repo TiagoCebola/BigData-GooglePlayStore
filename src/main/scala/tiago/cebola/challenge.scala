@@ -1,11 +1,11 @@
-package challenge
+package tiago.cebola
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions.{avg, col, collect_list, concat_ws, count, desc, explode, lit, regexp_extract, round, split, to_date, when}
 import org.apache.spark.sql.types.{DoubleType, StringType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 
-object extractMetrics {
+object challenge {
     private final val csvReadingProperties = Map("header" -> "true", "inferSchema" -> "true");
     private final val csvWritingProperties = Map("header" -> "true", "delimiter" -> "§");
 
