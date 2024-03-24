@@ -1,9 +1,10 @@
 package tiago.cebola
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.functions.{avg, col, collect_list, concat_ws, count, desc, explode, lit, regexp_extract, round, split, to_date, when}
-import org.apache.spark.sql.types.{DoubleType, StringType, StructField, StructType}
+import org.apache.spark.sql.functions.{avg, col, collect_list, max, count, desc, explode, lit, regexp_extract, round, split, to_date, when}
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
+
+import scala.math.Ordering.Implicits.infixOrderingOps
 
 object challenge {
     private final val csvReadingProperties = Map("header" -> "true", "inferSchema" -> "true");
@@ -45,6 +46,11 @@ object challenge {
         spark.stop();
     }
 
+    /**
+     * @Objective Init spark local application with master configs and only with ERROR logs.
+     *
+     * @return spark:SparkSession
+     */
     private def initSpark(): SparkSession = {
         val sparkConfig = new SparkConf()
             .setAppName("BigData-Challenge")
@@ -72,20 +78,13 @@ object challenge {
      * @return df_1:DataFrame
      **/
     private def averageSentimentPolarityByApp(spark: SparkSession, userReviewsData: DataFrame): DataFrame = {
-        val avgUserReviewsDataByApp = userReviewsData
+        userReviewsData
             .groupBy("App")
-            .agg(avg("Sentiment_Polarity").cast("double").as("Average_Sentiment_Polarity"))
-            .withColumn("Average_Sentiment_Polarity",
-                when(col("Average_Sentiment_Polarity").isNaN, lit(0.0))
-                    .otherwise(col("Average_Sentiment_Polarity")))
+            .agg(avg("Sentiment_Polarity")
+                .cast("double")
+                .as("Average_Sentiment_Polarity"))
+            .na.fill(0)
             .select("App", "Average_Sentiment_Polarity")
-            .collectAsList();
-
-        val schema = new StructType()
-            .add(StructField("App", StringType, nullable = true))
-            .add(StructField("Average_Sentiment_Polarity", DoubleType, nullable = false));
-
-        spark.createDataFrame(avgUserReviewsDataByApp, schema);
     }
 
     /**
@@ -100,8 +99,7 @@ object challenge {
      **/
     private def generateBestAppsCSV(spark: SparkSession, googlePlayStoreData: DataFrame): DataFrame = {
         googlePlayStoreData
-            .withColumn("Rating", col("Rating").cast("double"))
-            .filter(!col("Rating").isNaN and col("Rating") >= 4.0)
+            .filter(col("Rating").isNotNull && !col("Rating").isNaN && col("Rating") >= 4.0)
             .orderBy(desc("Rating"))
             .write
             .options(csvWritingProperties)
@@ -139,24 +137,34 @@ object challenge {
      * @return df_3:DataFrame
      **/
     private def groupByAppAndStandardize(googlePlayStoreData: DataFrame): DataFrame = {
-        val df_3 = googlePlayStoreData
-            .withColumn("Current_Version", col("Current Ver"))
-            .withColumn("Minimum_Android_Version", col("Android Ver"))
-            .withColumn("Content_Rating", col("Content Rating"))
-            .withColumn("Last_Updated", to_date(col("Last Updated"), "MMMM d, yyyy"))
-            .withColumn("Rating", col("Rating").cast("double"))
-            .withColumn("Reviews", col("Reviews").cast("long"))
-            .withColumn("Price", when(col("Price").contains("$"), round(regexp_extract(col("Price"), "^\\$(\\d+(\\.\\d+)?)", 1).cast("double") * lit(0.9), 2))
-                .otherwise(lit(0.0)))
-            .withColumn("Size", when(col("Size").endsWith("M") , regexp_extract(col("Size"), "^(\\d+(?:\\.\\d+)?)M", 1).cast("double"))
+        googlePlayStoreData
+            .withColumn("Rating", when(!col("Rating").isNaN, col("Rating").cast("double"))
                 .otherwise(lit(null)))
-            .groupBy("App", "Rating", "Reviews", "Size", "Installs", "Type", "Price", "Content_Rating", "Last_Updated", "Current_Version", "Minimum_Android_Version")
+            .withColumn("Reviews", col("Reviews").cast("long")).na.fill(0)
+            .withColumn("Size", when(col("Size").endsWith("M"), regexp_extract(col("Size"), "^(\\d+(?:\\.\\d+)?)M", 1).cast("double"))
+                .otherwise(when(col("Size").endsWith("K"), regexp_extract(col("Size"), "^(\\d+(?:\\.\\d+)?)K", 1).cast("double") / 1024.0)
+                    .otherwise(lit(null))))
+            .withColumn("Price", when(col("Price").contains("$"), round(regexp_extract(col("Price"), "^\\$(\\d+(\\.\\d+)?)", 1).cast("double") * lit(0.9), 2))
+                .otherwise(when(col("Price") === 0, col("Price").cast("double"))
+                    .otherwise(lit(null))))
+            .withColumn("Last_Updated", to_date(col("Last Updated"), "MMMM d, yyyy"))
+            .withColumn("Genres", split(col("Genres"), ";").cast("array<string>"))
+            .groupBy("App")
             .agg(
                 collect_list("Category").as("Categories"),
-                collect_list(concat_ws(";", col("Genres"))).as("Genres"))
+                max("Rating").as("Rating"),
+                max("Reviews").as("Reviews"),
+                max("Size").as("Size"),
+                max("Installs").as("Installs"),
+                max("Type").as("Type"),
+                max("Price").as("Price"),
+                max("Content Rating").as("Content_Rating"),
+                max("Genres").as("Genres"),
+                max("Last_Updated").as("Last_Updated"),
+                max("Current Ver").as("Current_Version"),
+                max("Android Ver").as("Minimum_Android_Version"))
+            .dropDuplicates("App")
             .select("App", "Categories", "Rating", "Reviews", "Size", "Installs", "Type", "Price", "Content_Rating", "Genres", "Last_Updated", "Current_Version", "Minimum_Android_Version");
-
-        df_3;
     }
 
     /**
@@ -173,8 +181,7 @@ object challenge {
      *         df_4:DataFrame
      **/
     private def cleanGooglePlayStoreData(spark: SparkSession, df_1: DataFrame, df_3: DataFrame): DataFrame = {
-        df_3
-            .join(df_1, df_1.col("App") === df_3.col("App"), "inner")
+        df_3.join(df_1, df_1.col("App") === df_3.col("App"), "left")
             .drop(df_1.col("App"))
             .write
             .options(csvWritingProperties)
@@ -203,9 +210,7 @@ object challenge {
      *         df_5:DataFrame
      **/
     private def getGooglePlayStoreMetricsByGenre(spark: SparkSession, df_4: DataFrame): DataFrame = {
-        df_4
-            .withColumn("Genre", explode(col("Genres")))
-            .withColumn("Genre", explode(split(col("Genre"), ";")))
+        df_4.withColumn("Genre", explode(col("Genres")))
             .groupBy("Genre")
             .agg(
                 count("*").as("Count"),
