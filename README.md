@@ -1,7 +1,7 @@
 <h1 align="center"> BigData - Google Play Store </h1>
 
 <p align="center">
-This project was developed as a BigData Challenge by Xpand IT.
+This project was developed as a BigData challenge by Xpand IT company.
 </p>
 
 <p align="center">
@@ -17,10 +17,10 @@ This project was developed as a BigData Challenge by Xpand IT.
 <br>
 
 <p align="center">
-  <img alt="System" src=".github/system.png" width="100%">
+  <img alt="System" src=".github/System.png" width="100%">
 </p>
 
-## Technologies
+# Technologies
 
 This project was developed with the following technologies:
 
@@ -30,7 +30,11 @@ This project was developed with the following technologies:
 - Git
 - GitHub
 
-## Project
+# Project
+
+This project presents a series of challenges designed to take files with information from the Google Play Store and clean the data to generate rating metrics.
+<br>
+You can check some results data by click [HERE](.github/results) or access the output files [HERE](src/main/resources).
 
 # :memo: License
 
